@@ -113,10 +113,11 @@ function speak(text, lang){
   const v = voiceFor(lang); if(v) u.voice = v;
   speechSynthesis.speak(u);
 }
-function unlockAudio(){ // iOS는 첫 음성 출력이 버튼 터치 안에서 일어나야 함
+function unlockAudio(){ /* 첫 터치 때 한 번만 */ // iOS는 첫 음성 출력이 버튼 터치 안에서 일어나야 함
   if(unlocked || !window.speechSynthesis) return;
   const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); unlocked = true;
 }
+document.addEventListener('touchend', function once(){ unlockAudio(); document.removeEventListener('touchend', once); }, {passive:true});
 if(window.speechSynthesis){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>speechSynthesis.getVoices(); }
 
 /* ---------- 번역 ---------- */
@@ -200,8 +201,8 @@ function resetAll(){
 }
 
 function startRec(side){
-  unlockAudio();
-  try{ speechSynthesis.cancel(); }catch(e){}
+  let wasSpeaking = false;
+  try{ wasSpeaking = speechSynthesis.speaking; speechSynthesis.cancel(); }catch(e){}
   if(!SR){ toast("이 브라우저는 음성 인식을 지원하지 않아요. 사파리로 열어 주세요."); return; }
   // 듣는 중에 같은 버튼 → 지금까지 들은 걸로 끝내기
   if(!finished && recSide===side){ finish(); return; }
@@ -209,20 +210,28 @@ function startRec(side){
   finished = true; killRec(); if(recSide) setRecUI(recSide, false);
 
   transcript = ""; recSide = side; finished = false;
-  $(side+"Heard").textContent = side==="ko" ? "듣고 있어요…" : "聞いています…";
+  $(side+"Heard").textContent = side==="ko" ? "마이크 준비 중…" : "準備中…";
+  setRecUI(side, true);
+  // 읽어주던 소리가 있으면 오디오가 마이크로 넘어갈 시간을 줌
+  if(!wasSpeaking) beginRec(side); // 터치 직후 바로 시작(아이폰은 이게 중요)
+  else setTimeout(() => { if(recSide===side && !finished) beginRec(side); }, 450);
+}
+
+function beginRec(side){
   $(side+"Said").textContent = ""; $(side+"Roma").textContent = "";
   const r = new SR(); rec = r;
   r.lang = side==="ko" ? "ko-KR" : "ja-JP";
   r.interimResults = true;
-  r.continuous = true;
+  r.continuous = false;   // 아이폰에선 false가 더 안정적
   r.maxAlternatives = 1;
   r.onresult = e => {
     if(rec !== r) return;
     let t = ""; for(const x of e.results) t += x[0].transcript;
     transcript = t;
     $(side+"Heard").textContent = t;
-    // 말이 1.3초 끊기면 끝난 것으로 보고 번역
-    clearTimeout(silenceT); silenceT = setTimeout(finish, 1300);
+    if(e.results[e.results.length-1].isFinal){ clearTimeout(silenceT); silenceT = setTimeout(finish, 250); return; }
+    // 말이 1.8초 끊기면 끝난 것으로 보고 번역
+    clearTimeout(silenceT); silenceT = setTimeout(finish, 1800);
   };
   r.onerror = e => {
     if(rec !== r) return;
@@ -232,10 +241,11 @@ function startRec(side){
       toast(side==="ko" ? "말소리가 안 들렸어요. 다시 눌러 주세요." : "聞き取れませんでした。もう一度どうぞ。");
     finish();
   };
+  r.onaudiostart = () => { if(rec === r && !transcript) $(side+"Heard").textContent = side==="ko" ? "🎙 지금 말하세요" : "🎙 どうぞ話してください"; };
   r.onend = () => { if(rec === r) finish(); };
   // 안전장치: 20초가 지나면 무조건 끝내기
   hardT = setTimeout(finish, 20000);
-  try{ r.start(); setRecUI(side, true); }
+  try{ r.start(); }
   catch(e){ finished = true; killRec(); recSide = null; setRecUI(side, false); toast("음성 인식을 시작하지 못했어요. 다시 눌러 주세요."); }
 }
 
