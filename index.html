@@ -68,6 +68,7 @@
 <div class="mid">
   <button id="modeBtn" class="on">↕ 마주보기</button>
   <button id="autoBtn" class="on">🔊 자동 읽기</button>
+  <button id="resetBtn">🔄 새로</button>
 </div>
 
 <!-- 나(한국어) — 아래쪽 -->
@@ -172,47 +173,78 @@ function setRecUI(side, on){
   b.classList.toggle("rec", on);
   b.textContent = on ? (side==="ko" ? "듣는 중… 누르면 끝" : "聞いています…") : (side==="ko" ? "🎤 말하기" : "🎤 話す");
 }
-function stopRec(){ if(rec){ try{ rec.stop(); }catch(e){} } }
+let finished = true, silenceT = null, hardT = null;
+
+function killRec(){
+  clearTimeout(silenceT); clearTimeout(hardT);
+  if(rec){ const r = rec; rec = null;
+    r.onresult = r.onerror = r.onend = null;
+    try{ r.abort(); }catch(e){} }
+}
+// 한 번의 인식을 끝내고 번역 — 여러 경로에서 불려도 한 번만 실행
+function finish(){
+  if(finished) return; finished = true;
+  const s = recSide, t = transcript.trim();
+  killRec(); recSide = null; if(s) setRecUI(s, false);
+  if(t) handle(s, t);
+}
+function resetAll(){
+  finished = true; killRec();
+  if(recSide) setRecUI(recSide, false); recSide = null; transcript = "";
+  setRecUI("ko", false); setRecUI("ja", false);
+  try{ speechSynthesis.cancel(); }catch(e){}
+  $("koHeard").textContent = "버튼을 누르고 한국어로 말하세요.";
+  $("jaHeard").textContent = "下のボタンを押して日本語で話してください。";
+  for(const id of ["koSaid","koRoma","jaSaid","jaRoma"]) $(id).textContent = "";
+  $("koHalf").classList.remove("busy"); $("jaHalf").classList.remove("busy");
+}
 
 function startRec(side){
   unlockAudio();
-  if(window.speechSynthesis) speechSynthesis.cancel();
+  try{ speechSynthesis.cancel(); }catch(e){}
   if(!SR){ toast("이 브라우저는 음성 인식을 지원하지 않아요. 사파리로 열어 주세요."); return; }
-  if(rec){ // 이미 듣는 중이면: 같은 쪽 → 종료, 다른 쪽 → 전환
-    const prev = recSide; stopRec(); if(prev===side) return;
-    setTimeout(()=>startRec(side), 300); return;
-  }
-  transcript = ""; recSide = side;
-  rec = new SR();
-  rec.lang = side==="ko" ? "ko-KR" : "ja-JP";
-  rec.interimResults = true;
-  rec.continuous = false;
-  rec.maxAlternatives = 1;
-  rec.onresult = e => {
-    let t = ""; for(const r of e.results) t += r[0].transcript;
+  // 듣는 중에 같은 버튼 → 지금까지 들은 걸로 끝내기
+  if(!finished && recSide===side){ finish(); return; }
+  // 다른 쪽이 듣는 중이었거나 이전 인식이 남아 있으면 정리하고 새로 시작
+  finished = true; killRec(); if(recSide) setRecUI(recSide, false);
+
+  transcript = ""; recSide = side; finished = false;
+  $(side+"Heard").textContent = side==="ko" ? "듣고 있어요…" : "聞いています…";
+  $(side+"Said").textContent = ""; $(side+"Roma").textContent = "";
+  const r = new SR(); rec = r;
+  r.lang = side==="ko" ? "ko-KR" : "ja-JP";
+  r.interimResults = true;
+  r.continuous = true;
+  r.maxAlternatives = 1;
+  r.onresult = e => {
+    if(rec !== r) return;
+    let t = ""; for(const x of e.results) t += x[0].transcript;
     transcript = t;
     $(side+"Heard").textContent = t;
-    if(e.results[e.results.length-1].isFinal) stopRec();
+    // 말이 1.3초 끊기면 끝난 것으로 보고 번역
+    clearTimeout(silenceT); silenceT = setTimeout(finish, 1300);
   };
-  rec.onerror = e => {
+  r.onerror = e => {
+    if(rec !== r) return;
     if(e.error==="not-allowed" || e.error==="service-not-allowed")
       toast("마이크 권한이 필요해요. 설정 → 앱 → Safari → 마이크를 '허용'으로 바꿔 주세요.", 5000);
     else if(e.error==="no-speech")
       toast(side==="ko" ? "말소리가 안 들렸어요. 다시 눌러 주세요." : "聞き取れませんでした。もう一度どうぞ。");
+    finish();
   };
-  rec.onend = () => {
-    const s = recSide, t = transcript;
-    rec = null; recSide = null; setRecUI(s, false);
-    if(t) handle(s, t);
-  };
-  try{ rec.start(); setRecUI(side, true); }
-  catch(e){ rec = null; recSide = null; toast("음성 인식을 시작하지 못했어요. 다시 눌러 주세요."); }
+  r.onend = () => { if(rec === r) finish(); };
+  // 안전장치: 20초가 지나면 무조건 끝내기
+  hardT = setTimeout(finish, 20000);
+  try{ r.start(); setRecUI(side, true); }
+  catch(e){ finished = true; killRec(); recSide = null; setRecUI(side, false); toast("음성 인식을 시작하지 못했어요. 다시 눌러 주세요."); }
 }
 
 $("koMic").onclick = () => startRec("ko");
 $("jaMic").onclick = () => startRec("ja");
 $("koSpk").onclick = () => { unlockAudio(); speak(lastSpoken.ko, /[぀-ヿ一-鿿]/.test(lastSpoken.ko) && !/[가-힣]/.test(lastSpoken.ko) ? "ja-JP" : "ko-KR"); };
 $("jaSpk").onclick = () => { unlockAudio(); speak(lastSpoken.ja, /[가-힣]/.test(lastSpoken.ja) ? "ko-KR" : "ja-JP"); };
+
+$("resetBtn").onclick = resetAll;
 
 /* ---------- 키보드 입력 ---------- */
 for(const s of ["ko","ja"]){
