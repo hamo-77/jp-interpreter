@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>한일 통역</title>
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="theme-color" content="#111114">
+<style>
+  :root{ --ko:#2f6bff; --ja:#e0313d; --bg:#111114; --card:#1d1d22; --ink:#f4f4f6; --muted:#9a9aa3; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Apple SD Gothic Neo","Hiragino Sans",sans-serif;overscroll-behavior:none}
+  body{display:flex;flex-direction:column;height:100dvh;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  .half{flex:1;display:flex;flex-direction:column;padding:14px 16px;min-height:0}
+  .half.ja{transform:rotate(180deg)}
+  body.single .half.ja{transform:none}
+  .mid{display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 10px;
+    border-top:1px solid #2a2a30;border-bottom:1px solid #2a2a30;background:#0b0b0d}
+  .mid button{background:#24242a;color:var(--ink);border:none;border-radius:999px;padding:7px 12px;font-size:13px}
+  .mid button.on{background:#3a3a44}
+  .who{font-size:13px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  .text{flex:1;overflow-y:auto;padding:8px 2px;min-height:0}
+  .heard{font-size:16px;color:var(--muted);line-height:1.45;min-height:1.4em}
+  .said{font-size:clamp(24px,6.5vw,34px);font-weight:700;line-height:1.4;margin-top:6px;word-break:keep-all}
+  .roma{font-size:15px;color:var(--muted);margin-top:6px}
+  .controls{display:flex;align-items:center;gap:10px}
+  .mic{flex:1;height:76px;border:none;border-radius:22px;color:#fff;font-size:20px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;gap:10px}
+  .ko .mic{background:var(--ko)} .ja .mic{background:var(--ja)}
+  .mic.rec{animation:pulse 1s infinite}
+  .mic.rec::before{content:"";width:12px;height:12px;border-radius:50%;background:#fff}
+  @keyframes pulse{50%{filter:brightness(1.35)}}
+  .side{width:56px;height:76px;border:none;border-radius:18px;background:var(--card);color:var(--ink);font-size:22px}
+  .chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 10px;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:none;background:var(--card);color:var(--ink);border:none;border-radius:999px;padding:8px 12px;font-size:14px}
+  .typebox{display:none;gap:6px;padding-bottom:8px}
+  .typebox.on{display:flex}
+  .typebox input{flex:1;background:var(--card);color:var(--ink);border:1px solid #333;border-radius:12px;
+    padding:10px 12px;font-size:16px}
+  .typebox button{border:none;border-radius:12px;padding:0 14px;color:#fff;font-weight:700}
+  .ko .typebox button{background:var(--ko)} .ja .typebox button{background:var(--ja)}
+  .busy{opacity:.55}
+  .toast{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#000c;color:#fff;
+    padding:12px 16px;border-radius:12px;font-size:14px;display:none;max-width:85%;text-align:center;z-index:9}
+</style>
+</head>
+<body>
+
+<!-- 상대방(일본어) — 위쪽, 거꾸로 보임 -->
+<section class="half ja" id="jaHalf">
+  <div class="who"><span>🇯🇵 日本語</span><span id="jaState"></span></div>
+  <div class="typebox" id="jaType"><input id="jaInput" placeholder="日本語で入力" enterkeyhint="send"><button id="jaSend">翻訳</button></div>
+  <div class="text">
+    <div class="heard" id="jaHeard">下のボタンを押して日本語で話してください。</div>
+    <div class="said" id="jaSaid" lang="ja"></div>
+    <div class="roma" id="jaRoma"></div>
+  </div>
+  <div class="controls">
+    <button class="side" id="jaKb" aria-label="キーボード">⌨️</button>
+    <button class="mic" id="jaMic">🎤 話す</button>
+    <button class="side" id="jaSpk" aria-label="もう一度">🔊</button>
+  </div>
+</section>
+
+<div class="mid">
+  <button id="modeBtn" class="on">↕ 마주보기</button>
+  <button id="autoBtn" class="on">🔊 자동 읽기</button>
+</div>
+
+<!-- 나(한국어) — 아래쪽 -->
+<section class="half ko" id="koHalf">
+  <div class="who"><span>🇰🇷 한국어</span><span id="koState"></span></div>
+  <div class="text">
+    <div class="heard" id="koHeard">버튼을 누르고 한국어로 말하세요.</div>
+    <div class="said" id="koSaid"></div>
+    <div class="roma" id="koRoma"></div>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="typebox" id="koType"><input id="koInput" placeholder="한국어로 입력" enterkeyhint="send"><button id="koSend">번역</button></div>
+  <div class="controls">
+    <button class="side" id="koKb" aria-label="키보드">⌨️</button>
+    <button class="mic" id="koMic">🎤 말하기</button>
+    <button class="side" id="koSpk" aria-label="다시 듣기">🔊</button>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, recSide = null, transcript = "", autoSpeak = true, unlocked = false;
+const lastSpoken = { ko:"", ja:"" }; // text to replay on each side's 🔊 (in that side's own language)
+
+function toast(msg, ms=2600){ const t=$("toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.style.display="none", ms); }
+
+/* ---------- 음성 출력 ---------- */
+function voiceFor(lang){
+  const vs = speechSynthesis.getVoices();
+  return vs.find(v=>v.lang===lang && /premium|enhanced|Kyoko|O-Ren|Yuna|Sora/i.test(v.name))
+      || vs.find(v=>v.lang===lang) || vs.find(v=>v.lang.startsWith(lang.slice(0,2)));
+}
+function speak(text, lang){
+  if(!text || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang; u.rate = lang==="ja-JP" ? 0.95 : 1.0;
+  const v = voiceFor(lang); if(v) u.voice = v;
+  speechSynthesis.speak(u);
+}
+function unlockAudio(){ // iOS는 첫 음성 출력이 버튼 터치 안에서 일어나야 함
+  if(unlocked || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); unlocked = true;
+}
+if(window.speechSynthesis){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>speechSynthesis.getVoices(); }
+
+/* ---------- 번역 ---------- */
+async function translate(text, from, to){
+  // 1차: Google 번역(무료 엔드포인트), 2차: MyMemory
+  try{
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&dt=rm&q=${encodeURIComponent(text)}`;
+    const r = await fetch(url); if(!r.ok) throw 0;
+    const j = await r.json();
+    const out = j[0].filter(x=>x && x[0]).map(x=>x[0]).join("");
+    const romaRow = j[0].find(x=>x && !x[0] && (x[2]||x[3]));
+    const roma = romaRow ? (to==="ja" ? (romaRow[2]||"") : (romaRow[3]||"")) : "";
+    if(out) return { text: out, roma };
+    throw 0;
+  }catch(e){
+    const r = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`);
+    const j = await r.json();
+    const out = j && j.responseData && j.responseData.translatedText;
+    if(!out) throw new Error("번역 실패");
+    return { text: out, roma: "" };
+  }
+}
+
+async function handle(side, text){
+  text = text.trim(); if(!text) return;
+  const me = side, other = side==="ko" ? "ja" : "ko";
+  $(me+"Heard").textContent = text;
+  $(me+"Said").textContent = ""; $(me+"Roma").textContent = "";
+  $(other+"Heard").textContent = "…";
+  $(other+"Said").textContent = ""; $(other+"Roma").textContent = "";
+  $(me+"Half").classList.add("busy");
+  try{
+    const r = await translate(text, me, other);
+    // 상대 쪽 화면: 번역문을 상대 언어로 크게
+    $(other+"Heard").textContent = other==="ja" ? "🇰🇷 → 🇯🇵" : "🇯🇵 → 🇰🇷";
+    $(other+"Said").textContent = r.text;
+    // 내 쪽 화면: 내가 한 말 + 상대에게 전달된 번역(발음 포함)
+    $(me+"Said").textContent = r.text;
+    $(me+"Roma").textContent = r.roma ? r.roma : "";
+    if(other==="ja"){ $("koRoma").textContent = r.roma ? "발음: " + r.roma : ""; }
+    lastSpoken[other] = r.text; lastSpoken[me] = r.text;
+    if(autoSpeak) speak(r.text, other==="ja" ? "ja-JP" : "ko-KR");
+  }catch(e){
+    toast(side==="ko" ? "번역에 실패했어요. 인터넷 연결을 확인해 주세요." : "翻訳できませんでした。もう一度お願いします。");
+    $(other+"Heard").textContent = "";
+  }finally{
+    $(me+"Half").classList.remove("busy");
+  }
+}
+
+/* ---------- 음성 인식 ---------- */
+function setRecUI(side, on){
+  const b = $(side+"Mic");
+  b.classList.toggle("rec", on);
+  b.textContent = on ? (side==="ko" ? "듣는 중… 누르면 끝" : "聞いています…") : (side==="ko" ? "🎤 말하기" : "🎤 話す");
+}
+function stopRec(){ if(rec){ try{ rec.stop(); }catch(e){} } }
+
+function startRec(side){
+  unlockAudio();
+  if(window.speechSynthesis) speechSynthesis.cancel();
+  if(!SR){ toast("이 브라우저는 음성 인식을 지원하지 않아요. 사파리로 열어 주세요."); return; }
+  if(rec){ // 이미 듣는 중이면: 같은 쪽 → 종료, 다른 쪽 → 전환
+    const prev = recSide; stopRec(); if(prev===side) return;
+    setTimeout(()=>startRec(side), 300); return;
+  }
+  transcript = ""; recSide = side;
+  rec = new SR();
+  rec.lang = side==="ko" ? "ko-KR" : "ja-JP";
+  rec.interimResults = true;
+  rec.continuous = false;
+  rec.maxAlternatives = 1;
+  rec.onresult = e => {
+    let t = ""; for(const r of e.results) t += r[0].transcript;
+    transcript = t;
+    $(side+"Heard").textContent = t;
+    if(e.results[e.results.length-1].isFinal) stopRec();
+  };
+  rec.onerror = e => {
+    if(e.error==="not-allowed" || e.error==="service-not-allowed")
+      toast("마이크 권한이 필요해요. 설정 → 앱 → Safari → 마이크를 '허용'으로 바꿔 주세요.", 5000);
+    else if(e.error==="no-speech")
+      toast(side==="ko" ? "말소리가 안 들렸어요. 다시 눌러 주세요." : "聞き取れませんでした。もう一度どうぞ。");
+  };
+  rec.onend = () => {
+    const s = recSide, t = transcript;
+    rec = null; recSide = null; setRecUI(s, false);
+    if(t) handle(s, t);
+  };
+  try{ rec.start(); setRecUI(side, true); }
+  catch(e){ rec = null; recSide = null; toast("음성 인식을 시작하지 못했어요. 다시 눌러 주세요."); }
+}
+
+$("koMic").onclick = () => startRec("ko");
+$("jaMic").onclick = () => startRec("ja");
+$("koSpk").onclick = () => { unlockAudio(); speak(lastSpoken.ko, /[぀-ヿ一-鿿]/.test(lastSpoken.ko) && !/[가-힣]/.test(lastSpoken.ko) ? "ja-JP" : "ko-KR"); };
+$("jaSpk").onclick = () => { unlockAudio(); speak(lastSpoken.ja, /[가-힣]/.test(lastSpoken.ja) ? "ko-KR" : "ja-JP"); };
+
+/* ---------- 키보드 입력 ---------- */
+for(const s of ["ko","ja"]){
+  $(s+"Kb").onclick = () => { const box=$(s+"Type"); box.classList.toggle("on"); if(box.classList.contains("on")) $(s+"Input").focus(); };
+  const send = () => { unlockAudio(); const v=$(s+"Input").value; $(s+"Input").value=""; $(s+"Input").blur(); handle(s, v); };
+  $(s+"Send").onclick = send;
+  $(s+"Input").addEventListener("keydown", e => { if(e.key==="Enter" && !e.isComposing){ e.preventDefault(); send(); } });
+}
+
+/* ---------- 상단 토글 ---------- */
+$("modeBtn").onclick = () => { const single = document.body.classList.toggle("single");
+  $("modeBtn").classList.toggle("on", !single); $("modeBtn").textContent = single ? "↕ 혼자 보기" : "↕ 마주보기"; };
+$("autoBtn").onclick = () => { autoSpeak = !autoSpeak; $("autoBtn").classList.toggle("on", autoSpeak);
+  $("autoBtn").textContent = autoSpeak ? "🔊 자동 읽기" : "🔇 읽기 끔"; if(!autoSpeak) speechSynthesis.cancel(); };
+
+/* ---------- 자주 쓰는 표현 (번역 내장, 인터넷 없어도 표시) ---------- */
+const PHRASES = [
+  ["화장실 어디예요?","すみません、トイレはどこですか？","스미마센, 토이레와 도코데스카?"],
+  ["이거 주세요","これをください。","코레오 쿠다사이"],
+  ["얼마예요?","いくらですか？","이쿠라데스카?"],
+  ["계산할게요","お会計お願いします。","오카이케- 오네가이시마스"],
+  ["카드 돼요?","カードは使えますか？","카-도와 츠카에마스카?"],
+  ["두 명이요","二人です。","후타리데스"],
+  ["추천 메뉴는?","おすすめは何ですか？","오스스메와 난데스카?"],
+  ["안 매워요?","辛くないですか？","카라쿠나이데스카?"],
+  ["사진 부탁해요","写真を撮っていただけますか？","샤신오 톳테 이타다케마스카?"],
+  ["천천히 말해 주세요","ゆっくり話してください。","윳쿠리 하나시테 쿠다사이"],
+  ["감사합니다","ありがとうございます！","아리가토- 고자이마스"],
+];
+$("chips").innerHTML = PHRASES.map((p,i)=>`<button class="chip" data-i="${i}">${p[0]}</button>`).join("");
+$("chips").querySelectorAll(".chip").forEach(el => el.onclick = () => {
+  unlockAudio();
+  const [ko, ja, pr] = PHRASES[+el.dataset.i];
+  $("koHeard").textContent = ko; $("koSaid").textContent = ja; $("koRoma").textContent = "발음: " + pr;
+  $("jaHeard").textContent = "🇰🇷 → 🇯🇵"; $("jaSaid").textContent = ja; $("jaRoma").textContent = "";
+  lastSpoken.ja = ja; lastSpoken.ko = ja;
+  if(autoSpeak) speak(ja, "ja-JP");
+});
+
+if(!SR){ toast("음성 인식이 안 되는 브라우저예요. 아이폰 사파리로 열어 주세요.", 5000); }
+</script>
+</body>
+</html>
